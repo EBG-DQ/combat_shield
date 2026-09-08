@@ -12,13 +12,13 @@ panic = "abort"
 lto = true
 opt-level = "s"
 
-# Same pinned revisions mtl itself depends on (verfied working, per mtl's own Cargo.toml).
+# Same pinned revisions mtl itself depends on (verified working, per mtl's own Cargo.toml).
 # Using the exact same commits removes any doubt about whether these crates actually
 # work together and against the current 64-bit Samase/SCR combo we already confirmed loads.
 [dependencies.samase_plugin]
 git = "https://github.com/neivv/samase_plugin"
 rev = "41e2098015ee56061a672a62ae3d85f3bb14d240"
- 
+
 [dependencies.bw_dat]
 git = "https://github.com/neivv/aise"
-rev = "42fba4276cbe30e73baefc7f3ad07cadaa2aa2b1"
+rev = "2629020"

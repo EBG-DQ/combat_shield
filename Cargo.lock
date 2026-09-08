@@ -11,10 +11,11 @@ checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
 [[package]]
 name = "bw_dat"
 version = "0.1.0"
-source = "git+https://github.com/neivv/aise?rev=42fba4276cbe30e73baefc7f3ad07cadaa2aa2b1#42fba4276cbe30e73baefc7f3ad07cadaa2aa2b1"
+source = "git+https://github.com/neivv/aise?rev=2629020#2629020771d7d45ba524fb83fb6dfa7beb4edfea"
 dependencies = [
  "bitflags",
  "fxhash",
+ "libc",
  "once_cell",
  "windows-sys",
 ]
@@ -41,6 +42,12 @@ checksum = "c31b6d751ae2c7f11320402d34e41349dd1016f8d5d45e48c4312bc8625af50c"
 dependencies = [
  "byteorder",
 ]
+
+[[package]]
+name = "libc"
+version = "0.2.189"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
 name = "once_cell"

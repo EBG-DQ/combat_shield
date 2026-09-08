@@ -36,16 +36,46 @@ unsafe extern "C" fn frame_hook() {
     }
 }
 
+// --- Temporary diagnostics: print once per checkpoint so we can see exactly
+// where the logic stops working, without spamming every frame for every unit.
+static mut DBG_SAW_MARINE: bool = false;
+static mut DBG_GAME_NULL: bool = false;
+static mut DBG_UPGRADE_LEVEL: bool = false;
+
 unsafe fn apply_combat_shield(unit: Unit) {
     if unit.id() != MARINE_ID {
         return;
     }
+    if !DBG_SAW_MARINE {
+        DBG_SAW_MARINE = true;
+        let msg = format!("Combat Shield DEBUG: saw a Marine (id={})\0", unit.id().0);
+        samase_print_text(msg.as_ptr());
+    }
     let game_ptr = samase_game();
     if game_ptr.is_null() {
+        if !DBG_GAME_NULL {
+            DBG_GAME_NULL = true;
+            samase_print_text(b"Combat Shield DEBUG: game_ptr is null\0".as_ptr());
+        }
         return;
     }
     let game = Game::from_ptr(game_ptr as *mut bw_dat::structs::Game);
-    if game.upgrade_level(unit.player(), COMBAT_SHIELD_UPGRADE) == 0 {
+    let level = game.upgrade_level(unit.player(), COMBAT_SHIELD_UPGRADE);
+    if level > 0 {
+        let msg = format!(
+            "Combat Shield DEBUG: upgrade_level for player {} = {}\0",
+            unit.player(), level
+        );
+        samase_print_text(msg.as_ptr());
+    } else if !DBG_UPGRADE_LEVEL {
+        DBG_UPGRADE_LEVEL = true;
+        let msg = format!(
+            "Combat Shield DEBUG: upgrade_level for player {} = {} (pre-research)\0",
+            unit.player(), level
+        );
+        samase_print_text(msg.as_ptr());
+    }
+    if level == 0 {
         return;
     }
     // Already swapped, nothing to do.
@@ -74,6 +104,25 @@ unsafe fn swap_unit_id(unit: Unit, new: UnitId) {
         .unwrap_or(1)
         .max(1);
     (*raw).flingy.hitpoints = new_hp << 8;
+
+    // Force a redraw in case the wireframe/sprite color is cached rather than
+    // recomputed live from HP - mirrors mtl's own redraw call (src/frame_hook
+    // area), even though mtl only does this on classic engine. Cheap to try
+    // since we're specifically testing SD/Retro rendering here.
+    if let Some(sprite) = unit.sprite() {
+        for image in sprite.images() {
+            image.redraw();
+        }
+    }
+
+    // DEBUG: print the real raw values driving this swap, to check whether the
+    // wireframe color mismatch is a data issue (e.g. new_hp/new_max not actually
+    // reaching 1.0) rather than an asset issue - remove once diagnosed.
+    let msg = format!(
+        "Combat Shield swap: old_max={} new_max={} current_hp={} -> new_hp={} (raw hitpoints field={})\0",
+        old_max, new_max, current_hp, new_hp, (*raw).flingy.hitpoints
+    );
+    samase_print_text(msg.as_ptr());
 }
 
 // --- Minimal raw bindings to the pieces of PluginApi we actually need ---
@@ -82,6 +131,13 @@ unsafe fn swap_unit_id(unit: Unit, new: UnitId) {
 
 static mut GET_GAME_FN: Option<unsafe extern "C" fn() -> *mut c_void> = None;
 static mut FIRST_ACTIVE_UNIT_FN: Option<unsafe extern "C" fn() -> *mut c_void> = None;
+static mut PRINT_TEXT_FN: Option<unsafe extern "C" fn(*const u8)> = None;
+
+unsafe fn samase_print_text(msg: *const u8) {
+    if let Some(f) = PRINT_TEXT_FN {
+        f(msg);
+    }
+}
 
 unsafe fn samase_first_active_unit() -> *mut c_void {
     match FIRST_ACTIVE_UNIT_FN {
@@ -118,9 +174,27 @@ unsafe fn init_units_dat(api: &samase_plugin::PluginApi) {
     }
 }
 
+// TEST: upgrade_level() started always returning 0 after we bumped bw_dat to a
+// newer revision (done to try to fix Tatti-format units.dat compatibility).
+// Theory: the newer revision may now require its own explicit init - mirroring
+// init_units above - before upgrade_level() can correctly determine extended
+// upgrade layout/stride, defaulting to 0 without it. extended_dat(3) = upgrades,
+// per mtl's own dat-index convention (0=units,1=weapons,2=flingy,3=upgrades).
+// SUPERSEDED: this was a wrong guess (crashed init) at fixing extended-dat
+// upgrade reading. The real fix, per neivv directly, is bw_dat::set_extended_arrays
+// in samase_plugin_init (see above) - keeping this here only for the record.
+
 #[no_mangle]
 pub unsafe extern "C" fn samase_plugin_init(api: *const samase_plugin::PluginApi) {
     let api = &*api;
+
+    // Real fix per neivv's own guidance for extended-format dat compatibility
+    // (e.g. Tatti-saved units.dat/upgrades.dat) - confirmed against mtl's actual
+    // source, same real call, not a guess this time.
+    bw_dat::set_is_scr(true);
+    let mut ext_arrays = std::ptr::null_mut();
+    let ext_arrays_len = (api.extended_arrays)(&mut ext_arrays);
+    bw_dat::set_extended_arrays(ext_arrays as *mut _, ext_arrays_len);
 
     init_units_dat(api);
 
@@ -129,6 +203,9 @@ pub unsafe extern "C" fn samase_plugin_init(api: *const samase_plugin::PluginApi
     }
     if let Some(get_first_active) = (api.first_active_unit)() {
         FIRST_ACTIVE_UNIT_FN = Some(get_first_active);
+    }
+    if let Some(get_print_text) = (api.print_text)() {
+        PRINT_TEXT_FN = Some(get_print_text);
     }
 
     let result = (api.hook_step_objects)(frame_hook, 0);
